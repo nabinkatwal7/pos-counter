@@ -86,7 +86,7 @@ public partial class MainWindow : Window
         {
             var method = ((ComboBoxItem)Payment.SelectedItem).Content.ToString()!;
             var sale = store.Checkout(cart, Money(Discount), Money(TaxRate), method, method == "Cash" ? Money(Tendered) : 0, SaleCustomer.SelectedValue as Guid?);
-            cart.Clear(); Discount.Text = "0"; Tendered.Text = "0"; SaleCustomer.SelectedIndex = -1; Refresh();
+            cart.Clear(); Discount.Text = "0"; Tendered.Text = "0"; TaxRate.Text = store.Data.Settings.DefaultTax.ToString(CultureInfo.CurrentCulture); SaleCustomer.SelectedIndex = -1; Refresh();
             Status.Text = $"{sale.Number} saved · Change {sale.Change:N2}"; ShowReceipt(sale);
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Sale could not be completed", MessageBoxButton.OK, MessageBoxImage.Warning); }
