@@ -54,7 +54,11 @@ public partial class MainWindow
         void Grid(DockPanel page, string key)
         {
             var grid = new DataGrid { AutoGenerateColumns = true, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto };
-            grid.AutoGeneratingColumn += (_, e) => { if (e.PropertyName.EndsWith("Id")) e.Cancel = true; if (e.PropertyType == typeof(decimal) && e.Column is DataGridTextColumn column) column.Binding.StringFormat = "N2"; };
+            grid.AutoGeneratingColumn += (_, e) =>
+            {
+                if (e.PropertyName.EndsWith("Id") || (key == "ReturnSales" && e.PropertyName is not ("Number" or "Time" or "CustomerName" or "Total" or "Payment"))) e.Cancel = true;
+                if (e.PropertyType == typeof(decimal) && e.Column is DataGridTextColumn column) column.Binding.StringFormat = "N2";
+            };
             operationGrids[key] = grid; page.Children.Add(grid);
         }
         var customers = Page("Customers", "Customer directory · select a customer for their purchase history. Assign a customer to a sale on the Sell tab.");
@@ -112,6 +116,7 @@ public partial class MainWindow
             Form("Shop settings", [("Shop name", s.Name), ("Address / contact", s.Address), ("Currency label", s.Currency), ("Default tax %", s.DefaultTax.ToString(CultureInfo.CurrentCulture)), ("Receipt footer", s.Footer)], v =>
             { store.SaveSettings(new() { Name = v[0], Address = v[1], Currency = v[2], DefaultTax = Number(v[3]), Footer = v[4] }); if (cart.Count == 0) TaxRate.Text = v[3]; });
         }); Grid(settings, "Settings");
+        UpdateReport();
     }
     private void RefreshOperations()
     {

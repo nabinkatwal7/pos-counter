@@ -51,7 +51,7 @@ try
     Check(new Store(legacyPath).Data.Settings.Name == "COUNTERPOINT", "Legacy data compatibility failed");
     var failedPath = Path.Combine(directory, "blocked.json"); var failing = new Store(failedPath); Directory.CreateDirectory(failedPath);
     try { failing.AddExpense("Test", "Save failure", 1); throw new Exception("Expected save failure"); }
-    catch (IOException) { Check(failing.Data.Expenses.Count == 0, "Failed write left unsaved changes"); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Check(failing.Data.Expenses.Count == 0, "Failed write left unsaved changes"); }
     Console.WriteLine("PASS: checkout, customers/history, receipt settings, returns, stock audit, reorder alerts, suppliers, receiving, expenses, reports, persistence, legacy data and write rollback.");
 }
 finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

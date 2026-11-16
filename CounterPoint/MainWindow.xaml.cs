@@ -101,6 +101,8 @@ public partial class MainWindow : Window
         var name = Field("Product name", original?.Name ?? ""); var barcode = Field("Barcode / SKU", original?.Barcode ?? "");
         var category = Field("Category", original?.Category ?? "General"); var price = Field("Unit price", (original?.Price ?? 0).ToString(CultureInfo.CurrentCulture));
         var stock = Field("Stock on hand", (original?.Stock ?? 0).ToString());
+        stock.IsReadOnly = original != null;
+        stock.ToolTip = "Use Shop operations → Stock audit to adjust existing stock with a reason.";
         var save = new Button { Content = "Save product", Margin = new Thickness(4, 20, 4, 0) }; panel.Children.Add(save);
         save.Click += (_, _) =>
         {
