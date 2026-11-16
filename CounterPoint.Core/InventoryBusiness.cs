@@ -93,10 +93,10 @@ public sealed partial class Store
         var product = Data.Products.Single(p => p.Id == productId);
         Require(kind is "Stock" or "Service" or "Bundle" && cost >= 0 && leadDays >= 0 && leadDays <= 365 && safetyStock >= 0, "Check product type, cost, lead time (0–365) and safety stock.");
         Require(supplier == Guid.Empty || Data.Suppliers.Any(s => s.Id == supplier), "Select an existing supplier.");
-        Require(product.Kind == kind || (TotalStock(productId) == 0 && !Data.Business.Bundles.Any(b => b.Parts.Any(p => p.ProductId == productId)) && !HasOpenProductUse(productId)), "Clear stock and open reservations before changing a product's type.");
+        Require(product.Kind == kind || (TotalStock(productId) == 0 && !Data.Business.Bundles.Any(b => b.Parts.Any(p => p.ProductId == productId)) && !HasOpenProductUse(productId) && !Data.Sales.Any(s => s.Lines.Any(l => l.ProductId == productId))), "Clear stock and reservations before changing product type. Products already used on receipts keep their type.");
         Commit(() => { product.Kind = kind; product.UnitCost = cost; product.PreferredSupplierId = supplier; product.LeadDays = leadDays; product.SafetyStock = safetyStock; });
     }
-    private bool HasOpenProductUse(Guid productId) => Data.Business.Orders.Any(o => IsReserved(o) && o.Lines.Any(l => l.ProductId == productId)) || Data.Business.Jobs.Any(j => IsJobReserved(j) && j.Parts.Any(l => l.ProductId == productId));
+    private bool HasOpenProductUse(Guid productId) => Data.Business.Orders.Any(o => IsReserved(o) && (o.Lines.Any(l => l.ProductId == productId) || Demand(o.Lines).Any(p => p.ProductId == productId))) || Data.Business.Jobs.Any(j => IsJobReserved(j) && (j.LaborProductId == productId || j.Parts.Any(l => l.ProductId == productId)));
     public void SaveBundle(Guid productId, IEnumerable<BundlePart> components)
     {
         var parts = components.ToList(); var product = Data.Products.Single(p => p.Id == productId);

@@ -46,7 +46,7 @@ try
     Check(report.Gross == 41.1m && report.Refunds == 19.8m && report.Net == 21.3m && report.Expenses == 100 && report.Purchases == 40 && report.CashSales == 19.8m && report.CardSales == 21.3m, "Report totals incorrect");
     Reject(() => store.Report(DateTime.Today, DateTime.Today.AddDays(-1)));
     reloaded = new Store(path);
-    Check(reloaded.Data.Returns.Count == 1 && reloaded.Data.Customers.Count == 1 && reloaded.Data.Suppliers.Count == 1 && reloaded.Data.Purchases.Count == 1 && reloaded.Data.Expenses.Count == 1 && reloaded.Data.Settings.DefaultTax == 13 && reloaded.Data.Movements.Count == 3, "New feature persistence failed");
+    Check(reloaded.Data.Returns.Count == 1 && reloaded.Data.Customers.Count == 1 && reloaded.Data.Suppliers.Count == 1 && reloaded.Data.Purchases.Count == 1 && reloaded.Data.Expenses.Count == 1 && reloaded.Data.Settings.DefaultTax == 13 && reloaded.Data.Movements.Count == 6, "New feature persistence failed");
     var legacyPath = Path.Combine(directory, "legacy.json"); File.WriteAllText(legacyPath, "{\"Products\":[],\"Sales\":[]}");
     Check(new Store(legacyPath).Data.Settings.Name == "COUNTERPOINT", "Legacy data compatibility failed");
     var failedPath = Path.Combine(directory, "blocked.json"); var failing = new Store(failedPath); Directory.CreateDirectory(failedPath);

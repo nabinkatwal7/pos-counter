@@ -17,6 +17,8 @@ public sealed class Product
     public Guid PreferredSupplierId { get; set; }
     public int LeadDays { get; set; } = 7;
     public int SafetyStock { get; set; } = 3;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int Available { get; set; }
 }
 public sealed record SaleLine(Guid ProductId, string Name, decimal Price, int Quantity)
 {
@@ -140,5 +142,7 @@ public sealed partial class Store
     }
     public static string Receipt(Sale sale) => $"{sale.ShopName}\n{sale.ShopAddress}\nSHOP RECEIPT {sale.Currency}\n{sale.Number}\n{sale.Time:yyyy-MM-dd HH:mm}\nCustomer: {sale.CustomerName}\n--------------------------------\n" +
         string.Join("\n", sale.Lines.Select(x => $"{x.Name}\n  {x.Quantity} x {x.Price:0.00}    {x.Total:0.00}")) +
-        $"\n--------------------------------\nSubtotal: {sale.Subtotal:0.00}\nDiscount: {sale.Discount:0.00}\nCoupon: {sale.CouponCode}\nPoints used / earned: {sale.PointsRedeemed} / {sale.PointsEarned}\nTax ({sale.TaxRate:0.##}%): {sale.Tax:0.00}\nTOTAL: {sale.Total:0.00}\nPayment: {sale.Payment}\nReceived: {(sale.Payment == "Card" ? sale.Total : sale.Tendered):0.00}\nChange: {sale.Change:0.00}\n\n{sale.Footer}";
+        $"\n--------------------------------\nSubtotal: {sale.Subtotal:0.00}\nDiscount: {sale.Discount:0.00}\nCoupon: {sale.CouponCode}\nPoints used / earned: {sale.PointsRedeemed} / {sale.PointsEarned}\nTax ({sale.TaxRate:0.##}%): {sale.Tax:0.00}\nTOTAL: {sale.Total:0.00}\nPayment: {sale.Payment}\n" + TenderDetails(sale) + $"\nChange: {sale.Change:0.00}\nCashier: {sale.EmployeeName}\n\n{sale.Footer}";
+    private static string TenderDetails(Sale sale) => sale.Payments.Count == 0 && sale.DepositPayments.Count == 0 ? $"Received: {(sale.Payment == "Card" ? sale.Total : sale.Tendered):0.00}" :
+        string.Join("\n", sale.Payments.Select(p => $"{p.Method}: {p.Amount:0.00} {p.Reference}")) + $"\nPrior deposits: {sale.DepositPayments.Sum(p => p.Amount):0.00}\nCash received now: {sale.Tendered:0.00}";
 }

@@ -92,7 +92,7 @@ public sealed partial class Store
         return tenders.Select(p =>
         {
             var start = cumulative; cumulative += p.Amount;
-            decimal Allocation(decimal value) => Round(value * cumulative / sale.Total) - Round(value * start / sale.Total);
+            decimal Allocation(decimal value) => Math.Min(p.Amount, Math.Max(0, value - start));
             return p with { Amount = Allocation(after) - Allocation(before) };
         }).Where(p => p.Amount > 0).ToList();
     }

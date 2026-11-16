@@ -14,9 +14,11 @@ public partial class MainWindow
     private bool filteringSales;
     private void ResetSale()
     {
+        fulfillingOrderId = Guid.Empty; fulfillingJobId = Guid.Empty;
         resumedCartId = null; cart.Clear(); couponBox.Clear(); pointsBox.Text = "0";
         Discount.Text = "0"; Tendered.Text = "0"; SaleCustomer.SelectedIndex = -1;
         TaxRate.Text = store.Data.Settings.DefaultTax.ToString(CultureInfo.CurrentCulture);
+        if (saleLocation != null) LockFulfillment();
     }
     private void BuildRetail()
     {
@@ -171,6 +173,7 @@ public partial class MainWindow
         var active = store.Data.Shifts.SingleOrDefault(s => s.Closed == null);
         shiftHint.Text = active == null ? "No shift is open. Sales made without an open shift remain outside drawer reconciliation." : $"Open: {active.Operator} · Expected cash: {store.ExpectedCash(active.Id):N2}";
         RefreshLoyalty();
+        if (businessReady) { RefreshSupplyChain(); RefreshCustomerBusiness(); RefreshTeamServices(); }
     }
     private void ApplySalesFilter()
     {

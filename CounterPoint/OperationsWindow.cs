@@ -70,7 +70,7 @@ public partial class MainWindow
             var c = Selected<Customer>("Customers");
             var sales = store.Data.Sales.Where(s => s.CustomerId == c.Id).OrderByDescending(s => s.Time).ToList();
             var total = sales.Sum(s => s.Total) - store.Data.Returns.Where(r => sales.Any(s => s.Number == r.SaleNumber)).Sum(r => r.Amount);
-            ShowTable($"{c.Name} · {sales.Count} sales · Net {total:N2}", sales.Select(s => new { s.Number, s.Time, s.Total, Returned = store.Data.Returns.Any(r => r.SaleNumber == s.Number) }));
+            ShowTable($"{c.Name} · {sales.Count} sales · Net {total:N2}", sales.Select(s => new { s.Number, s.Time, s.Total, Refunded = store.Refunded(s.Number), FullyReturned = store.FullyReturned(s) }));
         }); Grid(customers, "Customers");
 
         var returns = Page("Returns", "Full-sale returns restore every item to stock. Refunds are recorded against the original payment method; issue cash or terminal refunds separately.");
@@ -123,7 +123,7 @@ public partial class MainWindow
         if (operationGrids.Count == 0) return;
         operationGrids["Customers"].ItemsSource = store.Data.Customers.OrderBy(c => c.Name).ToList();
         operationGrids["Suppliers"].ItemsSource = store.Data.Suppliers.OrderBy(c => c.Name).ToList();
-        operationGrids["ReturnSales"].ItemsSource = store.Data.Sales.Where(s => !store.Data.Returns.Any(r => r.SaleNumber == s.Number)).OrderByDescending(s => s.Time).ToList();
+        operationGrids["ReturnSales"].ItemsSource = store.Data.Sales.Where(s => !store.FullyReturned(s)).OrderByDescending(s => s.Time).ToList();
         operationGrids["Stock"].ItemsSource = store.Data.Products.OrderBy(p => p.Name).ToList();
         operationGrids["Low"].ItemsSource = store.LowStock();
         operationGrids["Purchases"].ItemsSource = store.Data.Purchases.OrderByDescending(p => p.Time).ToList();

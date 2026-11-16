@@ -19,6 +19,10 @@ public partial class MainWindow : Window
             store = new Store(dataFile ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CounterPoint", "store.json"));
             BuildOperations();
             BuildRetail();
+            BuildSupplyChain();
+            BuildCustomerBusiness();
+            BuildTeamServices();
+            businessReady = true;
             TaxRate.Text = store.Data.Settings.DefaultTax.ToString(CultureInfo.CurrentCulture);
             Refresh();
         }
@@ -26,8 +30,7 @@ public partial class MainWindow : Window
     }
     private void Refresh()
     {
-        var query = Search.Text.Trim();
-        ProductsGrid.ItemsSource = store.Data.Products.Where(p => !p.Archived && $"{p.Name} {p.Category} {p.Barcode}".Contains(query, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Name).ToList();
+        RefreshCatalog();
         InventoryGrid.ItemsSource = store.Data.Products.OrderBy(p => p.Name).ToList();
         ApplySalesFilter();
         var today = store.Data.Sales.Where(s => s.Time.LocalDateTime.Date == DateTime.Today).ToList();
@@ -40,6 +43,7 @@ public partial class MainWindow : Window
     }
     private void RefreshCart()
     {
+        RepriceCart();
         CartGrid.ItemsSource = cart.ToList();
         TotalsChanged(this, new TextChangedEventArgs(TextBox.TextChangedEvent, UndoAction.None));
     }
@@ -54,9 +58,10 @@ public partial class MainWindow : Window
     private void AddSelected(object sender, RoutedEventArgs e) { if (ProductsGrid.SelectedItem is Product product) Add(product); }
     private void Add(Product product)
     {
+        if (IsFulfillment) { Status.Text = "Order and service items are fixed. Start a new sale to change the cart."; return; }
         if (product.Archived) { Status.Text = "This product is archived."; return; }
         var line = cart.FirstOrDefault(l => l.ProductId == product.Id);
-        if ((line?.Quantity ?? 0) >= product.Stock) { Status.Text = "No more stock available for this product."; return; }
+        if ((line?.Quantity ?? 0) >= store.SellableQuantity(product.Id, SelectedLocation)) { Status.Text = "No more unreserved stock available at this location."; return; }
         if (line != null) cart.Remove(line);
         cart.Add(new SaleLine(product.Id, product.Name, product.Price, (line?.Quantity ?? 0) + 1));
         RefreshCart(); Status.Text = $"Added {product.Name}.";
@@ -64,10 +69,11 @@ public partial class MainWindow : Window
     private void Increase(object sender, RoutedEventArgs e) { if (CartGrid.SelectedItem is SaleLine line) Add(store.Data.Products.Single(p => p.Id == line.ProductId)); }
     private void Decrease(object sender, RoutedEventArgs e)
     {
+        if (IsFulfillment) return;
         if (CartGrid.SelectedItem is not SaleLine line) return;
         cart.Remove(line); if (line.Quantity > 1) cart.Add(line with { Quantity = line.Quantity - 1 }); RefreshCart();
     }
-    private void Remove(object sender, RoutedEventArgs e) { if (CartGrid.SelectedItem is SaleLine line) { cart.Remove(line); RefreshCart(); } }
+    private void Remove(object sender, RoutedEventArgs e) { if (IsFulfillment) return; if (CartGrid.SelectedItem is SaleLine line) { cart.Remove(line); RefreshCart(); } }
     private void Clear(object sender, RoutedEventArgs e) { ResetSale(); RefreshCart(); }
     private static decimal Money(TextBox box) => decimal.TryParse(box.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value) ? value : throw new InvalidOperationException("Enter valid numbers for amounts and tax.");
     private void TotalsChanged(object sender, TextChangedEventArgs e)
@@ -80,6 +86,7 @@ public partial class MainWindow : Window
             var tax = decimal.Round((subtotal - discount) * rate / 100, 2, MidpointRounding.AwayFromZero);
             Breakdown.Text = $"Subtotal {subtotal:N2}   ·   Tax {tax:N2}";
             TotalLabel.Text = $"Total   {subtotal - discount + tax:N2}";
+            if (fulfillingOrderId != Guid.Empty) Breakdown.Text += $" · Deposits {store.OrderDeposits(fulfillingOrderId):N2} · Due {subtotal - discount + tax - store.OrderDeposits(fulfillingOrderId):N2}";
         }
         catch (Exception ex) { TotalLabel.Text = "Check amounts"; Breakdown.Text = ex is InvalidOperationException && ex.Message.Length < 150 ? ex.Message : "Check discount, coupon, points and tax (0–100%)."; }
     }
@@ -88,9 +95,8 @@ public partial class MainWindow : Window
         try
         {
             var method = ((ComboBoxItem)Payment.SelectedItem).Content.ToString()!;
-            var sale = store.Checkout(cart, Money(Discount), Money(TaxRate), method, method == "Cash" ? Money(Tendered) : 0, SaleCustomer.SelectedValue as Guid?, couponBox.Text, Integer(pointsBox.Text), resumedCartId);
-            ResetSale(); Refresh();
-            Status.Text = $"{sale.Number} saved · Change {sale.Change:N2}"; ShowReceipt(sale);
+            if (method is "Split" or "GiftCard") { TenderEditor(method); return; }
+            ExecuteCheckout(method, null, method == "Cash" ? Money(Tendered) : 0);
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Sale could not be completed", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -113,7 +119,7 @@ public partial class MainWindow : Window
             {
                 if (!int.TryParse(stock.Text, out var quantity)) throw new InvalidOperationException("Stock must be a whole number.");
                 if (cart.Any(l => l.ProductId == original?.Id)) throw new InvalidOperationException("Remove this product from the current cart before editing it.");
-                store.SaveProduct(new Product { Id = original?.Id ?? Guid.NewGuid(), Name = name.Text.Trim(), Barcode = barcode.Text.Trim(), Category = category.Text.Trim(), Price = Money(price), Stock = quantity, ReorderLevel = original?.ReorderLevel ?? 5, Archived = original?.Archived ?? false });
+                store.SaveProduct(new Product { Id = original?.Id ?? Guid.NewGuid(), Name = name.Text.Trim(), Barcode = barcode.Text.Trim(), Category = category.Text.Trim(), Price = Money(price), Stock = quantity, ReorderLevel = original?.ReorderLevel ?? 5, Archived = original?.Archived ?? false, Kind = original?.Kind ?? "Stock", UnitCost = original?.UnitCost ?? 0, PreferredSupplierId = original?.PreferredSupplierId ?? Guid.Empty, LeadDays = original?.LeadDays ?? 7, SafetyStock = original?.SafetyStock ?? 3 });
                 Refresh(); dialog.Close(); Status.Text = "Product saved.";
             }
             catch (Exception ex) { MessageBox.Show(dialog, ex.Message, "Check product"); }
