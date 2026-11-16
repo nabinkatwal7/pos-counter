@@ -16,6 +16,8 @@ public partial class MainWindow : Window
         try
         {
             store = new Store(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CounterPoint", "store.json"));
+            BuildOperations();
+            TaxRate.Text = store.Data.Settings.DefaultTax.ToString(CultureInfo.CurrentCulture);
             Refresh();
         }
         catch (Exception ex) { MessageBox.Show("Could not load shop data. Your file has been preserved.\n" + ex.Message, "CounterPoint"); Close(); }
@@ -28,6 +30,10 @@ public partial class MainWindow : Window
         SalesGrid.ItemsSource = store.Data.Sales.OrderByDescending(s => s.Time).ToList();
         var today = store.Data.Sales.Where(s => s.Time.LocalDateTime.Date == DateTime.Today).ToList();
         TodaySummary.Text = $"Today · {today.Count} sales · {today.Sum(s => s.Total):N2}";
+        var selectedCustomer = SaleCustomer.SelectedValue;
+        SaleCustomer.ItemsSource = store.Data.Customers.OrderBy(c => c.Name).ToList();
+        SaleCustomer.SelectedValue = selectedCustomer;
+        RefreshOperations();
         RefreshCart();
     }
     private void RefreshCart()
@@ -79,8 +85,8 @@ public partial class MainWindow : Window
         try
         {
             var method = ((ComboBoxItem)Payment.SelectedItem).Content.ToString()!;
-            var sale = store.Checkout(cart, Money(Discount), Money(TaxRate), method, method == "Cash" ? Money(Tendered) : 0);
-            cart.Clear(); Discount.Text = "0"; Tendered.Text = "0"; Refresh();
+            var sale = store.Checkout(cart, Money(Discount), Money(TaxRate), method, method == "Cash" ? Money(Tendered) : 0, SaleCustomer.SelectedValue as Guid?);
+            cart.Clear(); Discount.Text = "0"; Tendered.Text = "0"; SaleCustomer.SelectedIndex = -1; Refresh();
             Status.Text = $"{sale.Number} saved · Change {sale.Change:N2}"; ShowReceipt(sale);
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Sale could not be completed", MessageBoxButton.OK, MessageBoxImage.Warning); }
@@ -102,7 +108,7 @@ public partial class MainWindow : Window
             {
                 if (!int.TryParse(stock.Text, out var quantity)) throw new InvalidOperationException("Stock must be a whole number.");
                 if (cart.Any(l => l.ProductId == original?.Id)) throw new InvalidOperationException("Remove this product from the current cart before editing it.");
-                store.SaveProduct(new Product { Id = original?.Id ?? Guid.NewGuid(), Name = name.Text.Trim(), Barcode = barcode.Text.Trim(), Category = category.Text.Trim(), Price = Money(price), Stock = quantity });
+                store.SaveProduct(new Product { Id = original?.Id ?? Guid.NewGuid(), Name = name.Text.Trim(), Barcode = barcode.Text.Trim(), Category = category.Text.Trim(), Price = Money(price), Stock = quantity, ReorderLevel = original?.ReorderLevel ?? 5 });
                 Refresh(); dialog.Close(); Status.Text = "Product saved.";
             }
             catch (Exception ex) { MessageBox.Show(dialog, ex.Message, "Check product"); }
