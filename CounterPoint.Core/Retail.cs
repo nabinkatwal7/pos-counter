@@ -153,13 +153,14 @@ public sealed partial class Store
         var envelope = JsonSerializer.Deserialize<BackupFile>(backup) ?? throw new InvalidDataException("Invalid backup file.");
         Require(envelope.Format == "CounterPoint/1" && envelope.Payload != null && Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(envelope.Payload))) == envelope.Sha256, "Backup format or checksum is invalid.");
         using var document = JsonDocument.Parse(envelope.Payload!);
-        Require(document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("Products", out _) && document.RootElement.TryGetProperty("Sales", out _), "Backup is missing shop data.");
+        Require(document.RootElement.ValueKind == JsonValueKind.Object && typeof(StoreData).GetProperties().All(p => document.RootElement.TryGetProperty(p.Name, out _)), "Backup is missing shop data.");
         static bool HasNull(JsonElement e) => e.ValueKind == JsonValueKind.Null || (e.ValueKind == JsonValueKind.Array && e.EnumerateArray().Any(HasNull)) || (e.ValueKind == JsonValueKind.Object && e.EnumerateObject().Any(p => p.Value.ValueKind == JsonValueKind.Null && p.Name is not ("CustomerId" or "ShiftId" or "Closed" or "Counted" or "Expected") || p.Value.ValueKind != JsonValueKind.Null && HasNull(p.Value)));
         Require(!HasNull(document.RootElement), "Backup contains invalid empty fields.");
         var data = JsonSerializer.Deserialize<StoreData>(envelope.Payload!)!;
         Require(data.Products.Select(p => p.Id).Distinct().Count() == data.Products.Count && data.Products.Select(p => p.Barcode.ToUpperInvariant()).Distinct().Count() == data.Products.Count && data.Products.All(p => p.Stock >= 0 && p.Price >= 0 && !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Barcode)), "Backup contains invalid products.");
         Require(data.Sales.Select(s => s.Number).Distinct().Count() == data.Sales.Count && data.Sales.All(s => s.Lines.Count > 0 && s.Lines.All(l => l.Quantity > 0 && data.Products.Any(p => p.Id == l.ProductId))) && data.Returns.All(r => data.Sales.Any(s => s.Number == r.SaleNumber)) && data.Shifts.Count(s => s.Closed == null) <= 1, "Backup contains inconsistent sales or shifts.");
         Require(!Data.Shifts.Any(s => s.Closed == null), "Close the active shift before restoring a backup.");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         File.WriteAllText(path + ".before-restore-" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".json", ExportBackup());
         Commit(() => Data = data);
     }

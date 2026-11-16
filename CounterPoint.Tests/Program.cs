@@ -52,6 +52,7 @@ try
     var failedPath = Path.Combine(directory, "blocked.json"); var failing = new Store(failedPath); Directory.CreateDirectory(failedPath);
     try { failing.AddExpense("Test", "Save failure", 1); throw new Exception("Expected save failure"); }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Check(failing.Data.Expenses.Count == 0, "Failed write left unsaved changes"); }
-    Console.WriteLine("PASS: checkout, customers/history, receipt settings, returns, stock audit, reorder alerts, suppliers, receiving, expenses, reports, persistence, legacy data and write rollback.");
+    RetailChecks.Run(directory);
+    Console.WriteLine("PASS: all existing checks and ten new retail features, validation, persistence and rollback.");
 }
 finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
