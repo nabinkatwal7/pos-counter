@@ -9,7 +9,10 @@ public sealed record Purchase(string Number, DateTimeOffset Time, Guid SupplierI
     public decimal Total => Quantity * UnitCost;
 }
 public sealed record Expense(DateTimeOffset Time, string Category, string Description, decimal Amount);
-public sealed record SaleReturn(string SaleNumber, DateTimeOffset Time, string Reason, decimal Amount, string Payment);
+public sealed record SaleReturn(string SaleNumber, DateTimeOffset Time, string Reason, decimal Amount, string Payment)
+{
+    public Guid? ShiftId { get; init; }
+}
 public sealed record ShopSettings
 {
     public string Name { get; init; } = "COUNTERPOINT";
@@ -49,7 +52,7 @@ public sealed partial class Store
         Require(level >= 0, "Reorder level cannot be negative.");
         Commit(() => Data.Products.Single(p => p.Id == productId).ReorderLevel = level);
     }
-    public IReadOnlyList<Product> LowStock() => Data.Products.Where(p => p.Stock <= p.ReorderLevel).OrderBy(p => p.Stock).ToList();
+    public IReadOnlyList<Product> LowStock() => Data.Products.Where(p => !p.Archived && p.Stock <= p.ReorderLevel).OrderBy(p => p.Stock).ToList();
     public void ReceivePurchase(Guid supplierId, Guid productId, int quantity, decimal cost, string reference)
     {
         var product = Data.Products.Single(p => p.Id == productId);
@@ -75,7 +78,7 @@ public sealed partial class Store
         Require(!Data.Returns.Any(r => r.SaleNumber == saleNumber), "This sale has already been returned.");
         Require(!string.IsNullOrWhiteSpace(reason), "Enter a reason for the return.");
         foreach (var line in sale.Lines) Require((long)Data.Products.Single(p => p.Id == line.ProductId).Stock + line.Quantity <= int.MaxValue, "Restocking would exceed the stock limit.");
-        var result = new SaleReturn(saleNumber, DateTimeOffset.Now, reason, sale.Total, sale.Payment);
+        var result = new SaleReturn(saleNumber, DateTimeOffset.Now, reason, sale.Total, sale.Payment) { ShiftId = Data.Shifts.SingleOrDefault(s => s.Closed == null)?.Id };
         Commit(() =>
         {
             foreach (var line in sale.Lines)
