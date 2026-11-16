@@ -53,6 +53,7 @@ try
     try { failing.AddExpense("Test", "Save failure", 1); throw new Exception("Expected save failure"); }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Check(failing.Data.Expenses.Count == 0, "Failed write left unsaved changes"); }
     RetailChecks.Run(directory);
+    BusinessChecks.Run(directory);
     Console.WriteLine("PASS: all existing checks and ten new retail features, validation, persistence and rollback.");
 }
 finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

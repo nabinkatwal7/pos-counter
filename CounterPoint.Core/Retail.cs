@@ -7,6 +7,7 @@ using Microsoft.VisualBasic.FileIO;
 namespace CounterPoint.Core;
 public sealed record SavedCart(Guid Id, string Name, string Kind, DateTimeOffset Created, DateTime ExpiresOn, List<SaleLine> Lines, decimal Discount, decimal TaxRate, Guid? CustomerId)
 {
+    public Guid LocationId { get; init; } = Store.CounterLocationId;
     public decimal Total => new Sale("", Created, Lines, Discount, TaxRate, "Card", 0).Total;
 }
 public sealed record Coupon(string Code, bool Percentage, decimal Value, decimal Minimum, DateTime ExpiresOn, int MaxUses, bool Enabled = true);
@@ -46,14 +47,15 @@ public sealed partial class Store
         Require(discount + points <= subtotal, "Discounts and points exceed the subtotal.");
         return discount + points;
     }
-    public SavedCart SaveCart(string name, string kind, IEnumerable<SaleLine> lines, decimal discount, decimal tax, Guid? customerId, DateTime expires)
+    public SavedCart SaveCart(string name, string kind, IEnumerable<SaleLine> lines, decimal discount, decimal tax, Guid? customerId, DateTime expires, Guid locationId = default)
     {
         var items = lines.ToList();
         Require(!string.IsNullOrWhiteSpace(name) && kind is "Held" or "Quote" && items.Count > 0 && items.All(l => l.Quantity > 0) && items.Select(l => l.ProductId).Distinct().Count() == items.Count, "Enter a name and a valid nonempty cart.");
         Require(items.All(l => Data.Products.Any(p => p.Id == l.ProductId && !p.Archived && SellingPrice(p.Id, l.Quantity, customerId) == l.Price)), "Cart contains unavailable products or outdated prices.");
         Require(discount >= 0 && discount <= items.Sum(l => l.Total) && tax >= 0 && tax <= 100 && (kind != "Quote" || expires.Date >= DateTime.Today), "Check discount, tax and quote expiry.");
         Require(customerId == null || Data.Customers.Any(c => c.Id == customerId), "Customer does not exist.");
-        var saved = new SavedCart(Guid.NewGuid(), name, kind, DateTimeOffset.Now, expires.Date, items, discount, tax, customerId);
+        locationId = NormalizeLocation(locationId); ValidateLocation(locationId);
+        var saved = new SavedCart(Guid.NewGuid(), name, kind, DateTimeOffset.Now, expires.Date, items, discount, tax, customerId) { LocationId = locationId };
         Commit(() => Data.SavedCarts.Add(saved)); return saved;
     }
     public List<SaleLine> ResumeCart(Guid id)
@@ -63,9 +65,10 @@ public sealed partial class Store
         var lines = saved.Lines.Select(l =>
         {
             var p = Data.Products.SingleOrDefault(p => p.Id == l.ProductId);
-            Require(p != null && !p.Archived && SellableQuantity(p.Id, CounterLocationId) >= l.Quantity, $"Check availability of {l.Name}.");
+            Require(p != null && !p.Archived && SellableQuantity(p.Id, saved.LocationId) >= l.Quantity, $"Check availability of {l.Name}.");
             return new SaleLine(p!.Id, p.Name, SellingPrice(p.Id, l.Quantity, saved.CustomerId), l.Quantity);
         }).ToList();
+        CheckDemand(lines, saved.LocationId);
         Require(saved.Discount <= lines.Sum(l => l.Total), "Current prices are lower than the saved discount. Edit the saved order first.");
         return lines;
     }
@@ -159,6 +162,7 @@ public sealed partial class Store
     }
     public void RestoreBackup(string backup)
     {
+        EnsureAccess(nameof(RestoreBackup));
         var envelope = JsonSerializer.Deserialize<BackupFile>(backup) ?? throw new InvalidDataException("Invalid backup file.");
         Require(envelope.Format == "CounterPoint/1" && envelope.Payload != null && Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(envelope.Payload))) == envelope.Sha256, "Backup format or checksum is invalid.");
         using var document = JsonDocument.Parse(envelope.Payload!);
@@ -168,9 +172,11 @@ public sealed partial class Store
         var data = JsonSerializer.Deserialize<StoreData>(envelope.Payload!)!;
         Require(data.Products.Select(p => p.Id).Distinct().Count() == data.Products.Count && data.Products.Select(p => p.Barcode.ToUpperInvariant()).Distinct().Count() == data.Products.Count && data.Products.All(p => p.Stock >= 0 && p.Price >= 0 && !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Barcode)), "Backup contains invalid products.");
         Require(data.Sales.Select(s => s.Number).Distinct().Count() == data.Sales.Count && data.Sales.All(s => s.Lines.Count > 0 && s.Lines.All(l => l.Quantity > 0 && data.Products.Any(p => p.Id == l.ProductId))) && data.Returns.All(r => data.Sales.Any(s => s.Number == r.SaleNumber)) && data.Shifts.Count(s => s.Closed == null) <= 1, "Backup contains inconsistent sales or shifts.");
+        ValidateBusinessBackup(data);
         Require(!Data.Shifts.Any(s => s.Closed == null), "Close the active shift before restoring a backup.");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         File.WriteAllText(path + ".before-restore-" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".json", ExportBackup());
         Commit(() => Data = data);
+        CurrentEmployee = null;
     }
 }

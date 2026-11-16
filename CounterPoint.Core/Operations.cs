@@ -60,7 +60,7 @@ public sealed partial class Store
         Require(level >= 0, "Reorder level cannot be negative.");
         Commit(() => Data.Products.Single(p => p.Id == productId).ReorderLevel = level);
     }
-    public IReadOnlyList<Product> LowStock() => Data.Products.Where(p => !p.Archived && p.Stock <= p.ReorderLevel).OrderBy(p => p.Stock).ToList();
+    public IReadOnlyList<Product> LowStock() => Data.Products.Where(p => !p.Archived && p.Kind == "Stock" && p.Stock <= p.ReorderLevel).OrderBy(p => p.Stock).ToList();
     public void ReceivePurchase(Guid supplierId, Guid productId, int quantity, decimal cost, string reference)
     {
         var product = Data.Products.Single(p => p.Id == productId);

@@ -19,6 +19,8 @@ public sealed class Product
     public int SafetyStock { get; set; } = 3;
     [System.Text.Json.Serialization.JsonIgnore]
     public int Available { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Availability => Kind == "Service" ? "Service" : Available.ToString();
 }
 public sealed record SaleLine(Guid ProductId, string Name, decimal Price, int Quantity)
 {

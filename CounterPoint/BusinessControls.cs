@@ -93,9 +93,16 @@ public partial class MainWindow
     {
         editor.SaveButton.Click += (_, _) =>
         {
-            try { save(); Refresh(); editor.Window.Close(); }
+            try { if (HasValidationErrors(editor.Window)) throw new InvalidOperationException("Correct the highlighted table values before saving."); save(); Refresh(); editor.Window.Close(); }
             catch (Exception ex) { MessageBox.Show(editor.Window, ex.Message, "Check details", MessageBoxButton.OK, MessageBoxImage.Warning); Refresh(); }
         }; editor.Window.ShowDialog();
+    }
+    private static bool HasValidationErrors(DependencyObject element)
+    {
+        if (Validation.GetHasError(element)) return true;
+        if (element is not System.Windows.Media.Visual && element is not System.Windows.Media.Media3D.Visual3D) return false;
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(element); i++) if (HasValidationErrors(System.Windows.Media.VisualTreeHelper.GetChild(element, i))) return true;
+        return false;
     }
     private static Guid Pick(ComboBox box) => box.SelectedValue is Guid id ? id : throw new InvalidOperationException("Select a value first.");
     private static string Option(ComboBox box) => box.SelectedItem as string ?? throw new InvalidOperationException("Select an option.");

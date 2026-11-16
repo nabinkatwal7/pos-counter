@@ -148,12 +148,13 @@ public partial class MainWindow
         if (resumedCartId != null) throw new InvalidOperationException("This cart is already saved. Complete it or start a new sale.");
         if (couponBox.Text.Length > 0 || Integer(pointsBox.Text) != 0) throw new InvalidOperationException("Remove the coupon and loyalty redemption before saving; apply them when completing the sale.");
         Form(kind == "Held" ? "Hold cart" : "Save quotation", [("Customer / order name", (SaleCustomer.SelectedItem as Customer)?.Name ?? ""), ("Valid through (yyyy-MM-dd; quotations only)", DateTime.Today.AddDays(7).ToString("yyyy-MM-dd"))], v =>
-        { store.SaveCart(v[0], kind, cart, Money(Discount), Money(TaxRate), SaleCustomer.SelectedValue as Guid?, Date(v[1])); ResetSale(); });
+        { store.SaveCart(v[0], kind, cart, Money(Discount), Money(TaxRate), SaleCustomer.SelectedValue as Guid?, Date(v[1]), SelectedLocation); ResetSale(); });
     }
     private void LoadSavedCart(SavedCart saved)
     {
         RequireEmptyCart(); var lines = store.ResumeCart(saved.Id);
         ResetSale(); cart.AddRange(lines); resumedCartId = saved.Id; Discount.Text = saved.Discount.ToString(); TaxRate.Text = saved.TaxRate.ToString(); SaleCustomer.SelectedValue = saved.CustomerId;
+        saleLocation.SelectedValue = saved.LocationId;
         RefreshCart(); MainTabs.SelectedIndex = 0; Status.Text = "Loaded saved order; prices and availability were rechecked.";
     }
     private void RefreshLoyalty()

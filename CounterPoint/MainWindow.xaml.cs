@@ -58,6 +58,10 @@ public partial class MainWindow : Window
     private void AddSelected(object sender, RoutedEventArgs e) { if (ProductsGrid.SelectedItem is Product product) Add(product); }
     private void Add(Product product)
     {
+        Safe(() => AddToCart(product));
+    }
+    private void AddToCart(Product product)
+    {
         if (IsFulfillment) { Status.Text = "Order and service items are fixed. Start a new sale to change the cart."; return; }
         if (product.Archived) { Status.Text = "This product is archived."; return; }
         var line = cart.FirstOrDefault(l => l.ProductId == product.Id);
@@ -86,7 +90,7 @@ public partial class MainWindow : Window
             var tax = decimal.Round((subtotal - discount) * rate / 100, 2, MidpointRounding.AwayFromZero);
             Breakdown.Text = $"Subtotal {subtotal:N2}   ·   Tax {tax:N2}";
             TotalLabel.Text = $"Total   {subtotal - discount + tax:N2}";
-            if (fulfillingOrderId != Guid.Empty) Breakdown.Text += $" · Deposits {store.OrderDeposits(fulfillingOrderId):N2} · Due {subtotal - discount + tax - store.OrderDeposits(fulfillingOrderId):N2}";
+            if (fulfillingOrderId != Guid.Empty && store != null) Breakdown.Text += $" · Deposits {store.OrderDeposits(fulfillingOrderId):N2} · Due {subtotal - discount + tax - store.OrderDeposits(fulfillingOrderId):N2}";
         }
         catch (Exception ex) { TotalLabel.Text = "Check amounts"; Breakdown.Text = ex is InvalidOperationException && ex.Message.Length < 150 ? ex.Message : "Check discount, coupon, points and tax (0–100%)."; }
     }

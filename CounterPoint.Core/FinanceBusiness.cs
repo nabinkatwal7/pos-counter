@@ -120,7 +120,7 @@ public sealed partial class Store
             {
                 var original = sale.Lines.Single(l => l.ProductId == line.ProductId);
                 var components = original.Components.Count > 0 ? original.Components : UnitComponents(Data.Products.Single(p => p.Id == original.ProductId));
-                foreach (var part in components) ChangeStock(part.ProductId, sale.LocationId, checked(part.Quantity * line.Quantity), "Return " + saleNumber + ": " + reason);
+                foreach (var part in components) ReceiveCostedStock(part.ProductId, sale.LocationId, checked(part.Quantity * line.Quantity), part.UnitCost, "Return " + saleNumber + ": " + reason);
             }
             foreach (var gift in payments.Where(p => p.Method == "GiftCard")) Data.Business.GiftEntries.Add(new(Guid.NewGuid(), result.Time, gift.Reference, "Refund", gift.Amount, saleNumber, "GiftCard", ActiveShiftId));
             Data.Returns.Add(result);
