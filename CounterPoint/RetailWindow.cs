@@ -26,7 +26,7 @@ public partial class MainWindow
         var input = new Grid(); input.ColumnDefinitions.Add(new()); input.ColumnDefinitions.Add(new()); offers.Children.Add(input);
         StackPanel Field(int column, string label)
         {
-            var stack = new StackPanel(); Grid.SetColumn(stack, column); stack.Children.Add(new TextBlock { Text = label, Margin = new Thickness(4, 0, 4, 0) }); input.Children.Add(stack); return stack;
+            var stack = new StackPanel(); System.Windows.Controls.Grid.SetColumn(stack, column); stack.Children.Add(new TextBlock { Text = label, Margin = new Thickness(4, 0, 4, 0) }); input.Children.Add(stack); return stack;
         }
         couponBox = new TextBox { ToolTip = "Optional coupon code" }; Field(0, "Coupon code").Children.Add(couponBox);
         pointsBox = new TextBox { Text = "0" }; Field(1, "Loyalty points to redeem").Children.Add(pointsBox);
