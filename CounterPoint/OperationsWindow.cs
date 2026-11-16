@@ -34,7 +34,7 @@ public partial class MainWindow
     private T Selected<T>(string key) => operationGrids[key].SelectedItem is T value ? value : throw new InvalidOperationException("Select a row first.");
     private void BuildOperations()
     {
-        var tabs = new TabControl();
+        var tabs = new TabControl { TabStripPlacement = Dock.Left };
         MainTabs.Items.Add(new TabItem { Header = "Shop operations", Content = tabs });
         DockPanel Page(string key, string description)
         {
@@ -130,6 +130,7 @@ public partial class MainWindow
         operationGrids["Expenses"].ItemsSource = store.Data.Expenses.OrderByDescending(p => p.Time).ToList();
         operationGrids["Settings"].ItemsSource = new[] { store.Data.Settings };
         Status.Text = $"{store.LowStock().Count} products need restocking.";
+        RefreshRetail();
     }
     private void ShowTable<T>(string title, IEnumerable<T> rows)
     {
