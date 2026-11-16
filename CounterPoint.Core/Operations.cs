@@ -1,17 +1,26 @@
 using System.Text.Json;
+using System.Runtime.CompilerServices;
 
 namespace CounterPoint.Core;
 public sealed record Customer(Guid Id, string Name, string Phone, string Email);
 public sealed record Supplier(Guid Id, string Name, string Phone, string Address);
-public sealed record StockMovement(DateTimeOffset Time, Guid ProductId, string Product, int Quantity, string Reason);
+public sealed record StockMovement(DateTimeOffset Time, Guid ProductId, string Product, int Quantity, string Reason)
+{
+    public Guid LocationId { get; init; } = Store.CounterLocationId;
+}
 public sealed record Purchase(string Number, DateTimeOffset Time, Guid SupplierId, string Supplier, string Reference, Guid ProductId, string Product, int Quantity, decimal UnitCost)
 {
+    public Guid LocationId { get; init; } = Store.CounterLocationId;
+    public string OrderNumber { get; init; } = "";
+    public DateTime DueDate { get; init; }
     public decimal Total => Quantity * UnitCost;
 }
 public sealed record Expense(DateTimeOffset Time, string Category, string Description, decimal Amount);
 public sealed record SaleReturn(string SaleNumber, DateTimeOffset Time, string Reason, decimal Amount, string Payment)
 {
     public Guid? ShiftId { get; init; }
+    public List<ReturnItem> Lines { get; init; } = [];
+    public List<PaymentPart> Payments { get; init; } = [];
 }
 public sealed record ShopSettings
 {
@@ -24,10 +33,11 @@ public sealed record ShopSettings
 public sealed record DailyReport(DateTime Date, int Sales, decimal Gross, decimal Refunds, decimal Net, decimal Expenses, decimal Purchases, decimal CashSales, decimal CardSales);
 public sealed partial class Store
 {
-    private void Commit(Action change)
+    private void Commit(Action change, [CallerMemberName] string operation = "")
     {
+        EnsureAccess(operation);
         var before = JsonSerializer.Serialize(Data);
-        try { change(); Save(); }
+        try { change(); AppendAudit(operation, before); Save(); }
         catch { Data = JsonSerializer.Deserialize<StoreData>(before)!; throw; }
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
@@ -43,9 +53,7 @@ public sealed partial class Store
     }
     public void AdjustStock(Guid productId, int change, string reason)
     {
-        var product = Data.Products.Single(p => p.Id == productId);
-        Require(change != 0 && (long)product.Stock + change >= 0 && (long)product.Stock + change <= int.MaxValue && !string.IsNullOrWhiteSpace(reason), "Enter a nonzero quantity and reason. Stock cannot become negative.");
-        Commit(() => { product.Stock += change; Data.Movements.Add(new(DateTimeOffset.Now, productId, product.Name, change, reason)); });
+        EnsureAccess(nameof(AdjustLocationStock)); AdjustLocationStock(productId, CounterLocationId, change, reason);
     }
     public void SetReorderLevel(Guid productId, int level)
     {
@@ -63,8 +71,7 @@ public sealed partial class Store
         {
             var purchase = new Purchase($"PO-{Data.Purchases.Count + 1:000000}", DateTimeOffset.Now, supplierId, supplier.Name, reference, productId, product.Name, quantity, cost);
             _ = purchase.Total;
-            Data.Purchases.Add(purchase); product.Stock += quantity;
-            Data.Movements.Add(new(DateTimeOffset.Now, productId, product.Name, quantity, $"Received {purchase.Number} / {reference}"));
+            Data.Purchases.Add(purchase with { DueDate = DateTime.Today.AddDays(30) }); ReceiveCostedStock(productId, CounterLocationId, quantity, cost, $"Received {purchase.Number} / {reference}");
         });
     }
     public void AddExpense(string category, string description, decimal amount)
@@ -75,20 +82,7 @@ public sealed partial class Store
     public SaleReturn ReturnSale(string saleNumber, string reason)
     {
         var sale = Data.Sales.Single(s => s.Number == saleNumber);
-        Require(!Data.Returns.Any(r => r.SaleNumber == saleNumber), "This sale has already been returned.");
-        Require(!string.IsNullOrWhiteSpace(reason), "Enter a reason for the return.");
-        foreach (var line in sale.Lines) Require((long)Data.Products.Single(p => p.Id == line.ProductId).Stock + line.Quantity <= int.MaxValue, "Restocking would exceed the stock limit.");
-        var result = new SaleReturn(saleNumber, DateTimeOffset.Now, reason, sale.Total, sale.Payment) { ShiftId = Data.Shifts.SingleOrDefault(s => s.Closed == null)?.Id };
-        Commit(() =>
-        {
-            foreach (var line in sale.Lines)
-            {
-                Data.Products.Single(p => p.Id == line.ProductId).Stock += line.Quantity;
-                Data.Movements.Add(new(result.Time, line.ProductId, line.Name, line.Quantity, $"Return {saleNumber}: {reason}"));
-            }
-            Data.Returns.Add(result);
-        });
-        return result;
+        return ReturnLines(saleNumber, sale.Lines.Where(l => ReturnedQuantity(sale, l.ProductId) < l.Quantity).Select(l => new ReturnItem(l.ProductId, l.Quantity - ReturnedQuantity(sale, l.ProductId), true)), reason);
     }
     public void SaveSettings(ShopSettings settings)
     {
@@ -107,7 +101,7 @@ public sealed partial class Store
             return new DailyReport(day, sales.Count, gross, returns, gross - returns,
                 Data.Expenses.Where(e => e.Time.LocalDateTime.Date == day).Sum(e => e.Amount),
                 Data.Purchases.Where(p => p.Time.LocalDateTime.Date == day).Sum(p => p.Total),
-                sales.Where(s => s.Payment == "Cash").Sum(s => s.Total), sales.Where(s => s.Payment == "Card").Sum(s => s.Total));
+                sales.Sum(s => PaidBy(s, "Cash")), sales.Sum(s => PaidBy(s, "Card")));
         }).ToList();
     }
 }

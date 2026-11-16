@@ -20,8 +20,12 @@ public sealed record BackupFile(string Format, string Payload, string Sha256);
 
 public sealed partial class Store
 {
-    public void ArchiveProduct(Guid id, bool archived) => Commit(() => Data.Products.Single(p => p.Id == id).Archived = archived);
-    public int LoyaltyBalance(Guid customerId) => Data.Sales.Where(s => s.CustomerId == customerId && !Data.Returns.Any(r => r.SaleNumber == s.Number)).Sum(s => s.PointsEarned - s.PointsRedeemed);
+    public void ArchiveProduct(Guid id, bool archived)
+    {
+        Require(!archived || !HasOpenProductUse(id), "Finish reserved orders using this product before archiving it.");
+        Commit(() => Data.Products.Single(p => p.Id == id).Archived = archived);
+    }
+    public int LoyaltyBalance(Guid customerId) => Data.Sales.Where(s => s.CustomerId == customerId).Sum(s => s.PointsEarned - s.PointsRedeemed - (s.Total == 0 ? (FullyReturned(s) ? s.PointsEarned - s.PointsRedeemed : 0) : (int)decimal.Floor(s.PointsEarned * Refunded(s.Number) / s.Total) - (int)decimal.Floor(s.PointsRedeemed * Refunded(s.Number) / s.Total)));
     public void SaveCoupon(Coupon coupon)
     {
         coupon = coupon with { Code = coupon.Code.Trim().ToUpperInvariant(), ExpiresOn = coupon.ExpiresOn.Date };
@@ -46,7 +50,7 @@ public sealed partial class Store
     {
         var items = lines.ToList();
         Require(!string.IsNullOrWhiteSpace(name) && kind is "Held" or "Quote" && items.Count > 0 && items.All(l => l.Quantity > 0) && items.Select(l => l.ProductId).Distinct().Count() == items.Count, "Enter a name and a valid nonempty cart.");
-        Require(items.All(l => Data.Products.Any(p => p.Id == l.ProductId && !p.Archived && p.Price == l.Price)), "Cart contains unavailable products or outdated prices.");
+        Require(items.All(l => Data.Products.Any(p => p.Id == l.ProductId && !p.Archived && SellingPrice(p.Id, l.Quantity, customerId) == l.Price)), "Cart contains unavailable products or outdated prices.");
         Require(discount >= 0 && discount <= items.Sum(l => l.Total) && tax >= 0 && tax <= 100 && (kind != "Quote" || expires.Date >= DateTime.Today), "Check discount, tax and quote expiry.");
         Require(customerId == null || Data.Customers.Any(c => c.Id == customerId), "Customer does not exist.");
         var saved = new SavedCart(Guid.NewGuid(), name, kind, DateTimeOffset.Now, expires.Date, items, discount, tax, customerId);
@@ -59,8 +63,8 @@ public sealed partial class Store
         var lines = saved.Lines.Select(l =>
         {
             var p = Data.Products.SingleOrDefault(p => p.Id == l.ProductId);
-            Require(p != null && !p.Archived && p.Stock >= l.Quantity, $"Check availability of {l.Name}.");
-            return new SaleLine(p!.Id, p.Name, p.Price, l.Quantity);
+            Require(p != null && !p.Archived && SellableQuantity(p.Id, CounterLocationId) >= l.Quantity, $"Check availability of {l.Name}.");
+            return new SaleLine(p!.Id, p.Name, SellingPrice(p.Id, l.Quantity, saved.CustomerId), l.Quantity);
         }).ToList();
         Require(saved.Discount <= lines.Sum(l => l.Total), "Current prices are lower than the saved discount. Edit the saved order first.");
         return lines;
@@ -74,7 +78,11 @@ public sealed partial class Store
     public decimal ExpectedCash(Guid id)
     {
         var shift = Data.Shifts.Single(s => s.Id == id);
-        return shift.Expected ?? shift.Opening + Data.Sales.Where(s => s.ShiftId == id && s.Payment == "Cash").Sum(s => s.Total) - Data.Returns.Where(r => r.ShiftId == id && r.Payment == "Cash").Sum(r => r.Amount) + Data.CashEntries.Where(e => e.ShiftId == id).Sum(e => e.Amount);
+        return shift.Expected ?? shift.Opening + Data.Sales.Where(s => s.ShiftId == id).Sum(s => s.Payments.Count == 0 && s.DepositPayments.Count == 0 ? (s.Payment == "Cash" ? s.Total : 0) : s.Payments.Where(p => p.Method == "Cash").Sum(p => p.Amount))
+            - Data.Returns.Where(r => r.ShiftId == id).Sum(r => RefundPayments(r).Where(p => p.Method == "Cash").Sum(p => p.Amount)) + Data.CashEntries.Where(e => e.ShiftId == id).Sum(e => e.Amount)
+            + Data.Business.AccountPayments.Where(p => p.ShiftId == id && p.Method == "Cash").Sum(p => p.Amount)
+            + Data.Business.OrderPayments.Where(p => p.ShiftId == id && p.Method == "Cash").Sum(p => p.Amount)
+            + Data.Business.GiftEntries.Where(p => p.ShiftId == id && p.Method == "Cash" && p.Type is "Issue" or "Top-up").Sum(p => p.Amount);
     }
     public void MoveCash(decimal amount, string reason)
     {
@@ -94,7 +102,7 @@ public sealed partial class Store
         Require(from == null || to == null || from.Value.Date <= to.Value.Date, "End date must follow start date.");
         return Data.Sales.Where(s => $"{s.Number} {s.CustomerName} {string.Join(' ', s.Lines.Select(l => l.Name))}".Contains(query.Trim(), StringComparison.OrdinalIgnoreCase)
             && (from == null || s.Time.LocalDateTime.Date >= from.Value.Date) && (to == null || s.Time.LocalDateTime.Date <= to.Value.Date)
-            && (payment == "All" || s.Payment == payment) && (status == "All" || Data.Returns.Any(r => r.SaleNumber == s.Number) == (status == "Returned")))
+            && (payment == "All" || s.Payment == payment || PaymentsFor(s).Any(p => p.Method == payment)) && (status == "All" || (status == "Returned" ? FullyReturned(s) : status == "Partial" ? Refunded(s.Number) > 0 && !FullyReturned(s) : !FullyReturned(s))))
             .OrderByDescending(s => s.Time).ToList();
     }
     public IReadOnlyList<ProductPerformance> Performance(DateTime from, DateTime to)
@@ -130,7 +138,8 @@ public sealed partial class Store
             int.TryParse(v[4], out stock); int.TryParse(v[5], out reorder); bool.TryParse(v[6], out archived);
             Require(v[0].Length > 0 && v[1].Length > 0 && price >= 0 && stock >= 0 && reorder >= 0 && !rows.Any(p => p.Barcode.Equals(v[0], StringComparison.OrdinalIgnoreCase)), "Invalid or duplicate barcode, name, price or stock in CSV.");
             var existing = Data.Products.FirstOrDefault(p => p.Barcode.Equals(v[0], StringComparison.OrdinalIgnoreCase));
-            rows.Add(new() { Id = existing?.Id ?? Guid.NewGuid(), Barcode = v[0], Name = v[1], Category = v[2], Price = price, Stock = stock, ReorderLevel = reorder, Archived = archived });
+            Require(existing == null || (stock >= ReservedStock(existing.Id, CounterLocationId) && (!archived || !HasOpenProductUse(existing.Id)) && (existing.Kind == "Stock" || stock == 0)), "CSV changes conflict with reserved inventory or a non-stock product.");
+            rows.Add(new() { Id = existing?.Id ?? Guid.NewGuid(), Barcode = v[0], Name = v[1], Category = v[2], Price = price, Stock = stock, ReorderLevel = reorder, Archived = archived, Kind = existing?.Kind ?? "Stock", UnitCost = existing?.UnitCost ?? 0, PreferredSupplierId = existing?.PreferredSupplierId ?? Guid.Empty, LeadDays = existing?.LeadDays ?? 7, SafetyStock = existing?.SafetyStock ?? 3 });
         }
         Require(rows.Count > 0, "CSV contains no products.");
         Commit(() =>
@@ -153,8 +162,8 @@ public sealed partial class Store
         var envelope = JsonSerializer.Deserialize<BackupFile>(backup) ?? throw new InvalidDataException("Invalid backup file.");
         Require(envelope.Format == "CounterPoint/1" && envelope.Payload != null && Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(envelope.Payload))) == envelope.Sha256, "Backup format or checksum is invalid.");
         using var document = JsonDocument.Parse(envelope.Payload!);
-        Require(document.RootElement.ValueKind == JsonValueKind.Object && typeof(StoreData).GetProperties().All(p => document.RootElement.TryGetProperty(p.Name, out _)), "Backup is missing shop data.");
-        static bool HasNull(JsonElement e) => e.ValueKind == JsonValueKind.Null || (e.ValueKind == JsonValueKind.Array && e.EnumerateArray().Any(HasNull)) || (e.ValueKind == JsonValueKind.Object && e.EnumerateObject().Any(p => p.Value.ValueKind == JsonValueKind.Null && p.Name is not ("CustomerId" or "ShiftId" or "Closed" or "Counted" or "Expected") || p.Value.ValueKind != JsonValueKind.Null && HasNull(p.Value)));
+        Require(document.RootElement.ValueKind == JsonValueKind.Object && typeof(StoreData).GetProperties().Where(p => p.Name != "Business").All(p => document.RootElement.TryGetProperty(p.Name, out _)), "Backup is missing shop data.");
+        static bool HasNull(JsonElement e) => e.ValueKind == JsonValueKind.Null || (e.ValueKind == JsonValueKind.Array && e.EnumerateArray().Any(HasNull)) || (e.ValueKind == JsonValueKind.Object && e.EnumerateObject().Any(p => p.Value.ValueKind == JsonValueKind.Null && p.Name is not ("CustomerId" or "ShiftId" or "Closed" or "Counted" or "Expected" or "ClockOut") || p.Value.ValueKind != JsonValueKind.Null && HasNull(p.Value)));
         Require(!HasNull(document.RootElement), "Backup contains invalid empty fields.");
         var data = JsonSerializer.Deserialize<StoreData>(envelope.Payload!)!;
         Require(data.Products.Select(p => p.Id).Distinct().Count() == data.Products.Count && data.Products.Select(p => p.Barcode.ToUpperInvariant()).Distinct().Count() == data.Products.Count && data.Products.All(p => p.Stock >= 0 && p.Price >= 0 && !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Barcode)), "Backup contains invalid products.");
