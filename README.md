@@ -1,6 +1,6 @@
 # CounterPoint
 
-A Windows desktop point of sale app built with .NET 10 and WPF. No third-party packages or database server are required.
+A Windows desktop point of sale app built with .NET 10 and WPF, using Microsoft's built-in **PresentationFramework.Fluent** light theme and native Fluent control templates. No third-party packages or database server are required.
 
 ## Run
 
@@ -31,6 +31,21 @@ Ten added features are available through **Shop operations** and the customer se
 
 Returns and stock deliveries affect inventory immediately. Cash/card totals in reports show original sales before refunds; refunds are shown separately. Returns are full-sale only; partial returns are not supported.
 
+## Retail tools: ten more features
+
+1. **Held carts:** use **Hold cart** on Sell, then resume from Retail tools → Held carts. Carts persist across restarts without reserving stock. Successful checkout removes the saved entry atomically. Clearing a resumed cart leaves the saved entry available.
+2. **Quotations:** save an expiring quotation from Sell, view/print it, and load it into checkout. Quotes are estimates, not receipts; current prices and stock are rechecked when loading. Coupons and loyalty points are applied at checkout rather than saved in quotations or held carts.
+3. **Coupons:** create fixed or percentage codes with a minimum subtotal, expiry, total usage limit and enable/disable control. Apply a code in Sell. Discounts apply in this order: manual amount, coupon, then points. Returned sales still count toward the coupon usage limit.
+4. **Loyalty points:** linked customers earn one point per full 100 of the paid total; each point discounts one currency unit before tax. Select a customer and enter points on Sell. Returns reverse the original points transaction. A balance can become negative if points earned on a returned sale were already spent; further redemption is blocked until sufficient points accrue.
+5. **Cash shift reconciliation:** open a named shift with a starting float, record cash in/out, then close it with a counted balance to see the variance. Cash sales/refunds are attached to the currently open shift. Sales without an open shift are excluded. Purchases and expenses do not automatically change drawer cash; record a cash-out movement when paid from the drawer.
+6. **Product CSV import/export:** export a template under Data & backup. Headers are `Barcode,Name,Category,Price,Stock,ReorderLevel,Archived`; decimal amounts use a dot. Matching barcodes update products, including stock and archive status; omitted products are preserved. Imports validate all rows before saving, preserve leading barcode zeros, support quoted fields, and log stock differences. Hold or clear the active cart first.
+7. **Backup and restore:** create a `.cpbackup` file containing the complete shop state and checksum. Restore validates the file, requires an empty cart and closed current shift, and saves a recovery backup beside `store.json` before replacing data. Recovery filenames start with `store.json.before-restore-`. Backups contain customer details and financial history; keep them in your chosen secure location.
+8. **Sales search and filters:** search receipt number, customer or product under Sales history; optionally filter dates, payment method and returned/active status. Press Search sales to apply or Reset filters to clear.
+9. **Product performance analytics:** rank products for a date range by net sales before tax, with sold, returned and net units. Discounts are allocated proportionally across items. Returns are counted on the return date; figures are revenue, not profit. Run analysis to refresh after transactions.
+10. **Product archiving:** remove discontinued products from the selling catalog and reorder alerts while preserving stock, receipt and report history. Restore them from Product archive to sell again.
+
+The two management areas use side navigation to keep the growing feature set accessible. The app uses Microsoft's WPF Fluent implementation, rather than embedding the web-only Fluent UI React components.
+
 ## Storage
 
 Data is saved atomically to `%LOCALAPPDATA%\CounterPoint\store.json`. Back up this file regularly with the app closed. Existing store files load with defaults for the new features. This version supports one running app at one counter; it does not coordinate multiple processes or counters. It has no staff authentication, payment terminal integration or jurisdiction-specific fiscal certification.
@@ -39,8 +54,9 @@ Data is saved atomically to `%LOCALAPPDATA%\CounterPoint\store.json`. Back up th
 
 ```powershell
 dotnet run --project CounterPoint.Tests
+dotnet run --project CounterPoint.UiChecks
 dotnet build CounterPoint/CounterPoint.csproj
 dotnet publish CounterPoint/CounterPoint.csproj -c Release -r win-x64 --self-contained true -o publish
 ```
 
-The verification executable checks checkout calculations, validation, inventory updates, persistence and receipt content without external test packages.
+The verification executables check checkout calculations, validation, inventory updates, all twenty added workflows, persistence, legacy data, write rollback, CSV/backup round trips, and WPF page initialization/layout with populated sample data. UI checks use an isolated temporary shop and do not change your shop data.

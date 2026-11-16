@@ -10,18 +10,19 @@ public partial class MainWindow : Window
 {
     private Store store = null!;
     private readonly List<SaleLine> cart = [];
-    public MainWindow()
+    public MainWindow() : this(null) { }
+    public MainWindow(string? dataFile)
     {
         InitializeComponent();
         try
         {
-            store = new Store(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CounterPoint", "store.json"));
+            store = new Store(dataFile ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CounterPoint", "store.json"));
             BuildOperations();
             BuildRetail();
             TaxRate.Text = store.Data.Settings.DefaultTax.ToString(CultureInfo.CurrentCulture);
             Refresh();
         }
-        catch (Exception ex) { MessageBox.Show("Could not load shop data. Your file has been preserved.\n" + ex.Message, "CounterPoint"); Close(); }
+        catch (Exception ex) { if (dataFile != null) throw; MessageBox.Show("Could not load shop data. Your file has been preserved.\n" + ex.Message, "CounterPoint"); Close(); }
     }
     private void Refresh()
     {
